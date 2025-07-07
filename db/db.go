@@ -1,13 +1,15 @@
 package db
 
-const dbNAME = "hotel-reservation"
-const userCollection = "users"
+const MongoDBNameEnvName = "MONGO_DB_NAME"
 
-//func ToObjectID(id string) (primitive.ObjectID, error) {
-//	oid, err := primitive.ObjectIDFromHex(id)
-//	if err != nil {
-//		log.Default().Printf("Error converting id to ObjectID: %v", err)
-//	}
-//
-//	return oid, err
-//}
+type Pagination struct {
+	Limit int64
+	Page  int64
+}
+
+type Store struct {
+	User    UserStore
+	Hotel   HotelStore
+	Room    RoomStore
+	Booking BookingStore
+}

@@ -4,71 +4,81 @@ import (
 	"HotelReservation/api"
 	"HotelReservation/db"
 	"context"
-	"errors"
-	"flag"
-	"fmt"
 	"github.com/gofiber/fiber/v2"
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
 	"os"
-	"os/signal"
 )
 
-const dbURI = "mongodb://localhost:27017"
-
 var config = fiber.Config{
-	// Override default error handler
-	ErrorHandler: func(ctx *fiber.Ctx, err error) error {
-		// Status code defaults to 500
-		code := fiber.StatusInternalServerError
-
-		// Retrieve the custom status code if it's a *fiber.Error
-		var e *fiber.Error
-		if errors.As(err, &e) {
-			code = e.Code
-		}
-
-		// Send custom error page
-		err = ctx.Status(code).SendFile(fmt.Sprintf("./%d.html", code))
-		if err != nil {
-			// In case the SendFile fails
-			return ctx.Status(fiber.StatusInternalServerError).SendString("Internal Server Error")
-		}
-
-		// Return from handler
-		return nil
-	},
+	ErrorHandler: api.ErrorHandler,
 }
 
 func main() {
-	client, err := mongo.Connect(context.TODO(),
-		options.Client(), options.Client().ApplyURI(dbURI))
-
+	mongoEndpoint := os.Getenv("MONGO_DB_URL")
+	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(mongoEndpoint))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	userHandler := api.NewUserHandler(db.NewMongoUserStore(client))
+	// handlers initialization
+	var (
+		hotelStore   = db.NewMongoHotelStore(client)
+		roomStore    = db.NewMongoRoomStore(client, hotelStore)
+		userStore    = db.NewMongoUserStore(client)
+		bookingStore = db.NewMongoBookingStore(client)
+		store        = &db.Store{
+			Hotel:   hotelStore,
+			Room:    roomStore,
+			User:    userStore,
+			Booking: bookingStore,
+		}
+		userHandler    = api.NewUserHandler(userStore)
+		hotelHandler   = api.NewHotelHandler(store)
+		authHandler    = api.NewAuthHandler(userStore)
+		roomHandler    = api.NewRoomHandler(store)
+		bookingHandler = api.NewBookingHandler(store)
+		app            = fiber.New(config)
+		auth           = app.Group("/api")
+		apiv1          = app.Group("/api/v1", api.JWTAuthentication(userStore))
+		admin          = apiv1.Group("/admin", api.AdminAuth)
+	)
 
-	listenAddr := flag.String("listen", ":3000", "Listen address")
-	flag.Parse()
+	// auth
+	auth.Post("/auth", authHandler.HandleAuthenticate)
 
-	app := fiber.New(config)
-	app.Get("/test", func(c *fiber.Ctx) error {
-		return c.SendString("Hello, Hotel Reservation Server!")
-	})
+	// Versioned API routes
+	// user handlers
+	apiv1.Get("/user/:id", userHandler.HandleGetUser)
+	apiv1.Put("/user/:id", userHandler.HandlePutUser)
+	apiv1.Delete("/user/:id", userHandler.HandleDeleteUser)
+	apiv1.Post("/user", userHandler.HandlePostUser)
+	apiv1.Get("/user", userHandler.HandleGetUsers)
 
-	apiV1 := app.Group("/api/v1")
-	apiV1.Get("/user", userHandler.HandleGetUsers)
-	apiV1.Get("/user/:id", userHandler.HandleGetUserByID)
+	// hotel handlers
+	apiv1.Get("/hotel", hotelHandler.HandleGetHotels)
+	apiv1.Get("/hotel/:id", hotelHandler.HandleGetHotel)
+	apiv1.Get("/hotel/:id/rooms", hotelHandler.HandleGetRooms)
 
-	//gracefully shutdown
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt)
+	// rooms handlers
+	apiv1.Get("/room", roomHandler.HandleGetRooms)
+	apiv1.Post("/room/:id/book", roomHandler.HandleBookRoom)
 
-	go app.Listen(*listenAddr)
+	// bookings handlers
+	apiv1.Get("/booking/:id", bookingHandler.HandleGetBooking)
+	apiv1.Get("/booking/:id/cancel", bookingHandler.HandleCancelBooking)
 
-	<-sig
-	return
+	// admin handlers
+	admin.Get("/booking", bookingHandler.HandleGetBookings)
+
+	listenAddr := os.Getenv("HTTP_LISTEN_ADDRESS")
+	app.Listen(listenAddr)
+}
+
+func init() {
+	if err := godotenv.Load(); err != nil {
+		log.Fatal(err)
+	}
 }
