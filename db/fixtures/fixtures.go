@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/fulltimegodev/hotel-reservation/db"
-	"github.com/fulltimegodev/hotel-reservation/types"
+	"HotelReservation/db"
+	"HotelReservation/types"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
