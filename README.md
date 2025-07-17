@@ -1,4 +1,5 @@
 # Hotel reservation
+A sample of hotel reservation or probably any reservation system in golang
 
 # Project environment variables
 ```
